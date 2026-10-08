@@ -1,0 +1,35 @@
+services:
+  wg-easy:
+    image: wg-easy:awg-test
+    pull_policy: never
+    environment:
+      EXPERIMENTAL_AWG: "true"
+      OVERRIDE_AUTO_AWG: "awg"
+      AWG_PROTOCOL_VERSION: "latest"
+      AWG_AUTO_GENERATE: "true"
+      INSECURE: "true"
+    ports:
+      - "51820:51820/udp"
+      - "51821:51821/tcp"
+    volumes:
+      - awg_test_data:/etc/wireguard
+      - /lib/modules:/lib/modules:ro
+    cap_add:
+      - NET_ADMIN
+    sysctls:
+      net.ipv4.ip_forward: "1"
+      net.ipv4.conf.all.src_valid_mark: "1"
+      net.ipv6.conf.all.disable_ipv6: "0"
+      net.ipv6.conf.all.forwarding: "1"
+      net.ipv6.conf.default.forwarding: "1"
+    networks:
+      - awg_test
+    restart: unless-stopped
+
+volumes:
+  awg_test_data:
+    name: wg-easy-awg-test-data
+
+networks:
+  awg_test:
+    enable_ipv6: true

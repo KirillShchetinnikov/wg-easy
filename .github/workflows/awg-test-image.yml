@@ -1,0 +1,126 @@
+name: AWG test image
+
+on:
+  push:
+    branches:
+      - ci/awg-test-image
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: awg-test-image
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.repository == 'KirillShchetinnikov/wg-easy'
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Image metadata
+        shell: bash
+        run: |
+          echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/wg-easy" >> "$GITHUB_ENV"
+          echo "BUILD_TAG=awg-${GITHUB_SHA:0:7}" >> "$GITHUB_ENV"
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          platforms: linux/${{ matrix.arch }}
+          load: true
+          tags: |
+            wg-easy:awg-test
+            ${{ env.IMAGE }}:${{ env.BUILD_TAG }}-${{ matrix.arch }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=awg-test-${{ matrix.arch }}
+          cache-to: type=gha,mode=min,scope=awg-test-${{ matrix.arch }}
+      - name: Check tools and migration
+        run: |
+          docker run --rm --network none --cap-drop ALL --entrypoint /bin/sh wg-easy:awg-test -c '
+            awg --version
+            ip -Version
+            node --version
+            test -x /usr/local/bin/healthcheck
+            test -f /app/server/database/migrations/0012_simple_zemo.sql
+          '
+      - name: Publish architecture image
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: docker push "${IMAGE}:${BUILD_TAG}-${ARCH}"
+      - name: Export downloadable image
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          mkdir -p dist
+          docker save wg-easy:awg-test | gzip -1 > "dist/wg-easy-${BUILD_TAG}-${ARCH}.tar.gz"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: awg-image-${{ matrix.arch }}
+          path: dist/*.tar.gz
+          compression-level: 0
+          retention-days: 7
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: awg-image-*
+          merge-multiple: true
+          path: dist
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish manifest and downloadable release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/wg-easy"
+          build_tag="awg-${GITHUB_SHA:0:7}"
+          release_tag="awg-test-${GITHUB_SHA:0:7}"
+          docker buildx imagetools create \
+            --tag "${image}:awg-test" --tag "${image}:${build_tag}" \
+            "${image}:${build_tag}-amd64" "${image}:${build_tag}-arm64"
+          cp .github/awg-test/compose.yaml dist/compose.yaml
+          cp .github/awg-test/README.md dist/README.md
+          (cd dist && sha256sum *.tar.gz > SHA256SUMS)
+          gh release view "$release_tag" >/dev/null 2>&1 || \
+            gh release create "$release_tag" --target "$GITHUB_SHA" --prerelease \
+              --title "AWG test build ${GITHUB_SHA:0:7}" \
+              --notes-file .github/awg-test/README.md
+          gh release upload "$release_tag" dist/* --clobber
+          {
+            echo "Image: \`${image}:awg-test\` (amd64 and arm64)"
+            echo "Release: https://github.com/${GITHUB_REPOSITORY}/releases/tag/${release_tag}"
+            echo "Commit: ${GITHUB_SHA}"
+          } >> "$GITHUB_STEP_SUMMARY"
