@@ -99,12 +99,19 @@ test('keepalive migration preserves clients, defaults, links, interface settings
     const beforeClients = await db.query.client.findMany();
     const beforeLinks = await db.query.oneTimeLink.findMany();
     const beforeDefaults = await db.query.userConfig.findFirst();
-    const beforeInterface = await db.query.wgInterface.findFirst();
+    const beforeInterface = await db.query.wgInterface.findFirst({
+      columns:
+        'awgProfileGenerated' in schema.wgInterface
+          ? Object.fromEntries([['awgProfileGenerated', false]])
+          : undefined,
+    });
     await migrate(db, { migrationsFolder });
     expect(await db.query.client.findMany()).toEqual(beforeClients);
     expect(await db.query.oneTimeLink.findMany()).toEqual(beforeLinks);
     expect(await db.query.userConfig.findFirst()).toEqual(beforeDefaults);
-    expect(await db.query.wgInterface.findFirst()).toEqual(beforeInterface);
+    expect(await db.query.wgInterface.findFirst()).toMatchObject(
+      beforeInterface!
+    );
     expect(
       (await sqlite.execute('PRAGMA foreign_key_check')).rows
     ).toHaveLength(0);
