@@ -134,22 +134,20 @@ test('generation rejects an existing client even if the interface still has plac
   await sqlite.execute(
     "INSERT INTO users_table (id,username,name,role,totp_verified,enabled) VALUES (1,'admin','Admin',1,0,1)"
   );
-  await db
-    .insert(schema.client)
-    .values({
-      name: 'Existing',
-      userId: 1,
-      interfaceId: 'wg0',
-      privateKey: KEY,
-      publicKey: KEY,
-      preSharedKey: KEY,
-      ipv4Address: '10.8.0.2',
-      ipv6Address: 'fdcc:ad94:bacf:61a4::cafe:2',
-      mtu: 1420,
-      persistentKeepalive: 0,
-      serverAllowedIps: [],
-      enabled: true,
-    });
+  await db.insert(schema.client).values({
+    name: 'Existing',
+    userId: 1,
+    interfaceId: 'wg0',
+    privateKey: KEY,
+    publicKey: KEY,
+    preSharedKey: KEY,
+    ipv4Address: '10.8.0.2',
+    ipv6Address: 'fdcc:ad94:bacf:61a4::cafe:2',
+    mtu: 1420,
+    persistentKeepalive: 0,
+    serverAllowedIps: [],
+    enabled: true,
+  });
   await expect(prepareAwgProfile(services, settings, verify)).rejects.toThrow(
     'fresh configuration'
   );
